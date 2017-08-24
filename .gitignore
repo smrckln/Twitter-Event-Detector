@@ -13,3 +13,4 @@ pip-selfcheck.json
 # Project files
 creds.conf
 logs
+data
