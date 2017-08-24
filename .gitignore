@@ -1,0 +1,8 @@
+# venv files & dirs
+bin
+include
+lib
+.Python
+pip-selfcheck.json
+
+# Python specfic files
