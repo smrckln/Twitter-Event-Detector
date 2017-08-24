@@ -9,3 +9,6 @@ pip-selfcheck.json
 
 # Jetbrains files
 .idea
+
+# Project files
+creds.conf
