@@ -6,3 +6,6 @@ lib
 pip-selfcheck.json
 
 # Python specfic files
+
+# Jetbrains files
+.idea
