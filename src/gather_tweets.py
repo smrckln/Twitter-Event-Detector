@@ -1,15 +1,17 @@
 import tweepy
 import logging
-from logging import handlers
+import logging.config
 import re
 import sqlite3
-import math
 import time
+import yaml
 
 from utils import config
 
-logging.config.dictConfig('./logs.conf')
-logger = logging.getLogger('tweepy')
+with open('./logs.conf', 'r') as fd:
+    logging.config.dictConfig(yaml.load(fd.read()))
+
+logger = logging.getLogger('gather_tweets')
 
 class TwitterClient(object):
 
@@ -49,8 +51,8 @@ class TwitterClient(object):
 
         try:
             num_iters = 4
-            clean_tweets = []
             while num_iters > 0:
+                clean_tweets = []
                 num_iters -= 1
                 num_calls = 0
                 while num_calls < 180:
@@ -67,10 +69,11 @@ class TwitterClient(object):
                                 clean_tweets.append(clean)
                         else:
                             clean_tweets.append(clean)
+                self._write_to_db(clean_tweets, table)
                 time.sleep(15 * 60)
 
 
-            self._write_to_db(clean_tweets, table)
+
 
         except tweepy.TweepError as e:
             # print error (if any)
