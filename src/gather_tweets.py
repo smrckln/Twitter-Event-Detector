@@ -2,21 +2,21 @@ import tweepy
 import logging
 from logging import handlers
 import re
-import pickle
-from datetime import date
+import sqlite3
+import math
+import time
 
 from utils import config
 
-logging.basicConfig()
+logging.config.dictConfig('./logs.conf')
 logger = logging.getLogger('tweepy')
-logger.addHandler(handlers.RotatingFileHandler('./logs/tweepy.log', maxBytes=1e6, backupCount=5))
-logger.setLevel('DEBUG')
 
 class TwitterClient(object):
 
     def __init__(self):
         self.consumer, self.consumer_secret, self.access, self.access_secret = config._get_twitter_tokens()
         self._logger = logger
+        self.conn = sqlite3.connect('./data/twitter.db')
         try:
             # create OAuthHandler object
             self._auth = tweepy.OAuthHandler(self.consumer, self.consumer_secret)
@@ -34,37 +34,43 @@ class TwitterClient(object):
         '''
         return ' '.join(re.sub(r"(@[A-Za-z0-9]+)|([^0-9A-Za-z \t]) | (\w +:\ / \ / \S +)", " ", tweet).split())
 
-    def _write_to_file(self, tweets, filename='./data/tweets.pkl'):
-        with open(filename, 'wb') as fd:
-            pickle.dump(tweets, fd)
-            self._logger.info('Successfully wrote tweets to file')
+    def _write_to_db(self, tweets, table):
+        for tweet in tweets:
+            cursor = self.conn.cursor()
 
-    def get_tweets(self, query="", count=15):
+            cursor.execute("insert into {table} (tweet) values (?)".format(table=table), (tweet,))
+        self.conn.commit()
+        self._logger.info("Successfully inserted into database")
+
+    def get_tweets(self, query="", table=""):
         '''
                 Main function to fetch tweets and parse them.
         '''
-        # empty list to store parsed tweets
-        tweets = []
 
         try:
-            # call twitter api to fetch tweets
-            fetched_tweets = self._api.search(q=query, count=count)
+            num_iters = 4
+            clean_tweets = []
+            while num_iters > 0:
+                num_iters -= 1
+                num_calls = 0
+                while num_calls < 180:
+                    num_calls += 1
 
-            # parsing tweets one by one
-            for tweet in fetched_tweets:
-                # empty dictionary to store required params of a tweet
-                parsed_tweet = self.clean_tweet(tweet.text)
+                    tweets = self._api.search(q=query, count=100)
 
-                # appending parsed tweet to tweets list
-                if tweet.retweet_count > 0:
-                    # if tweet has retweets, ensure that it is appended only once
-                    if parsed_tweet not in tweets:
-                        tweets.append(parsed_tweet)
-                else:
-                    tweets.append(parsed_tweet)
+                    for tweet in tweets:
+                        clean = self.clean_tweet(tweet.text)
 
-            # return parsed tweets
-            self._write_to_file(tweets, './data/{date}.pkl'.format(date=date.today()))
+                        if tweet.retweet_count > 0:
+                            # if tweet has retweets, ensure that it is appended only once
+                            if clean not in clean_tweets:
+                                clean_tweets.append(clean)
+                        else:
+                            clean_tweets.append(clean)
+                time.sleep(15 * 60)
+
+
+            self._write_to_db(clean_tweets, table)
 
         except tweepy.TweepError as e:
             # print error (if any)
@@ -73,12 +79,12 @@ class TwitterClient(object):
 if __name__ == '__main__':
     import argparse
     argparser = argparse.ArgumentParser()
-    argparser.add_argument('--count', default=25)
     argparser.add_argument('--query', default='test', nargs='?', type=str)
+    argparser.add_argument('--table', default='', nargs='?', type=str)
     args = argparser.parse_args()
 
     api = TwitterClient()
-    api.get_tweets(args.query, args.count)
+    api.get_tweets(args.query, args.table)
 
 
 
