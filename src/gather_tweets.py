@@ -13,6 +13,14 @@ with open('./logs.conf', 'r') as fd:
 
 logger = logging.getLogger('gather_tweets')
 
+def handle_limit(cursor):
+    while True:
+        try:
+            yield cursor.next()
+        except tweepy.error.TweepError as e:
+            logger.error(str(e))
+            time.sleep(15 * 60)
+
 class TwitterClient(object):
 
     def __init__(self):
@@ -44,40 +52,26 @@ class TwitterClient(object):
         self.conn.commit()
         self._logger.info("Successfully inserted into database")
 
-    def get_tweets(self, query="", table=""):
+    def get_tweets(self, query="", table="", num_tweets=500):
         '''
                 Main function to fetch tweets and parse them.
         '''
+        tweets = []
+        while len(tweets) < num_tweets:
+            self._logger.info('Number of tweets so far: {num}'.format(num=len(tweets)))
+            for tweet in handle_limit(tweepy.Cursor(self._api.search,
+                                                    q=query,
+                                                    count=100).items()):
+                clean_tweet = self.clean_tweet(tweet.text)
 
-        try:
-            num_iters = 4
-            while num_iters > 0:
-                clean_tweets = []
-                num_iters -= 1
-                num_calls = 0
-                while num_calls < 180:
-                    num_calls += 1
-
-                    tweets = self._api.search(q=query, count=100)
-
-                    for tweet in tweets:
-                        clean = self.clean_tweet(tweet.text)
-
-                        if tweet.retweet_count > 0:
-                            # if tweet has retweets, ensure that it is appended only once
-                            if clean not in clean_tweets:
-                                clean_tweets.append(clean)
-                        else:
-                            clean_tweets.append(clean)
-                self._write_to_db(clean_tweets, table)
-                time.sleep(15 * 60)
+                if tweet.retweet_count > 0:
+                    if clean_tweet not in tweets:
+                        tweets.append(clean_tweet)
+                else:
+                    tweets.append(clean_tweet)
+        self._write_to_db(tweets, table)
 
 
-
-
-        except tweepy.TweepError as e:
-            # print error (if any)
-            self._logger.error("Error : " + str(e))
 
 if __name__ == '__main__':
     import argparse
@@ -87,7 +81,7 @@ if __name__ == '__main__':
     args = argparser.parse_args()
 
     api = TwitterClient()
-    api.get_tweets(args.query, args.table)
+    api.get_tweets(args.query, args.table, 1e3)
 
 
 
