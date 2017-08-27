@@ -5,6 +5,7 @@ import re
 import sqlite3
 import time
 import yaml
+import json
 
 from utils import config
 
@@ -12,6 +13,8 @@ with open('./logs.conf', 'r') as fd:
     logging.config.dictConfig(yaml.load(fd.read()))
 
 logger = logging.getLogger('gather_tweets')
+
+conn = sqlite3.connect('./data/twitter.db')
 
 def handle_limit(cursor):
     while True:
@@ -72,6 +75,25 @@ class TwitterClient(object):
         self._write_to_db(tweets, table)
 
 
+class Streaming(tweepy.StreamListener):
+
+    def __init__(self, table):
+        super().__init__()
+        self.table = table
+
+    def on_data(self, data):
+        cursor = conn.cursor()
+        json_data = json.loads(data)
+
+        if not cursor.execute('select count(id) from {table} where [id] = ?'.format(table=self.table), (json_data['id'],)).fetchone()[0]:
+            cursor.execute('insert into {table} (id, tweet) values (?, ?)'.format(table=self.table),
+                           (json_data['id'], json_data['text'],))
+        conn.commit()
+        return True
+
+    def on_error(self, status):
+        logger.error(status)
+
 
 if __name__ == '__main__':
     import argparse
@@ -80,8 +102,14 @@ if __name__ == '__main__':
     argparser.add_argument('--table', default='', nargs='?', type=str)
     args = argparser.parse_args()
 
-    api = TwitterClient()
-    api.get_tweets(args.query, args.table, 1e3)
+    consumer, consumer_secret, access, access_secret = config._get_twitter_tokens()
+    auth = tweepy.OAuthHandler(consumer, consumer_secret)
+    auth.set_access_token(access, access_secret)
+
+    stream_listener = Streaming(args.table)
+
+    stream = tweepy.Stream(auth, stream_listener)
+    stream.filter(track=[args.query])
 
 
 
